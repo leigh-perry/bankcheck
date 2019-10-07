@@ -1,4 +1,4 @@
-module Program
+module Analyser
   ( run
   ) where
 
@@ -13,11 +13,5 @@ module Program
     . compare with whitelist
     . show remaining groups
 -}
-run :: IO ()
-run
---  args <- getArgs
- = do
-  putStrLn $ "TODO"
---  case args of
---    [srcFilepath, summaryFile] -> return () -- templatise srcFilepath summaryFile
---    _ -> putStrLn "Usage: bankcheck <source dir> <target .hsfiles file>"
+run :: [FilePath] -> IO ()
+run = print

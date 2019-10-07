@@ -1,10 +1,6 @@
 import           Data.Semigroup      ((<>))
 import           Options.Applicative
 
---data Command
---  = CheckTxns ![FilePath]
---  | Dummy !String
---  deriving (Show, Eq)
 type GlobalOption = String
 
 type BuildId = String
