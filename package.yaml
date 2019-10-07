@@ -1,0 +1,68 @@
+# This YAML file describes your package. Stack will automatically generate a
+# Cabal file when you run `stack build`. See the hpack website for help with
+# this file: <https://github.com/sol/hpack>.
+name: bankcheck
+version: '0.0.0'
+github: "githubuser/bankcheck"
+license: MIT
+author: "Leigh Perry"
+maintainer: "Leigh Perry"
+# synopsis: A new template package.
+# description: bankcheck is a new template package.
+# category: Other
+
+extra-source-files:
+- package.yaml
+- README.md
+- stack.yaml
+
+ghc-options: -Wall
+
+library:
+  dependencies:
+  - base
+  - directory
+  - filepath
+  - unix
+  source-dirs: src
+
+executables:
+  bankcheck:
+    source-dirs: app
+    main: Main.hs
+    dependencies:
+    - base
+    - bankcheck
+    - optparse-applicative
+    - transformers
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
+
+benchmarks:
+  bankcheck-benchmarks:
+    source-dirs: benchmark
+    main: Main.hs
+    dependencies:
+    - base
+    - bankcheck
+    - criterion
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
+
+tests:
+  bankcheck-test-suite:
+    source-dirs: test
+    main: Main.hs
+    dependencies:
+    - base
+    - bankcheck
+    - tasty
+    - tasty-hspec
+    ghc-options:
+    - -rtsopts
+    - -threaded
+    - -with-rtsopts=-N
