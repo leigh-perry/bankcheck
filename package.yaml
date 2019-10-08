@@ -21,9 +21,13 @@ ghc-options: -Wall
 library:
   dependencies:
   - base
-  - directory
-  - filepath
-  - unix
+  # - directory
+  # - filepath
+  # - unix
+  - cassava
+  - text
+  - vector
+  - bytestring
   source-dirs: src
 
 executables:
@@ -34,7 +38,7 @@ executables:
     - base
     - bankcheck
     - optparse-applicative
-    - transformers
+    # - transformers
     ghc-options:
     - -rtsopts
     - -threaded
@@ -47,7 +51,7 @@ benchmarks:
     dependencies:
     - base
     - bankcheck
-    - criterion
+    # - criterion
     ghc-options:
     - -rtsopts
     - -threaded
@@ -60,8 +64,7 @@ tests:
     dependencies:
     - base
     - bankcheck
-    - tasty
-    - tasty-hspec
+    - hedgehog
     ghc-options:
     - -rtsopts
     - -threaded
