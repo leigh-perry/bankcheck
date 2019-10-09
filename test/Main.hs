@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-import qualified Data.List      as List
-import           Hedgehog
-import qualified Hedgehog.Gen   as Gen
+import qualified Data.List as List
+import Hedgehog
+import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
 main :: IO ()
@@ -29,6 +29,6 @@ testReverse =
 
 testReverse2 :: Property
 testReverse2 =
-  withTests 1000 . property $ do
+  withTests 10 . property $ do
     xs <- forAll genIntList
     List.reverse (List.reverse xs) === xs
