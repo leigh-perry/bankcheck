@@ -28,6 +28,7 @@ library:
   - parsec
   - transformers
   - MissingH
+  - containers
   source-dirs: src
 
 executables:

@@ -15,7 +15,8 @@ import           Data.Foldable                 (toList)
 import           Data.Functor                  (void)
 import           Data.List                     (sortOn)
 import qualified Data.List.Utils               as U (uniq)
-import           Data.Text
+import qualified Data.Map                      as M
+import           Data.Text                     hiding (groupBy)
 import qualified Data.Vector                   as V
 import           Text.Parsec                   (ParseError, (<|>))
 import           Text.Parsec.Char              as PC
@@ -35,14 +36,24 @@ analyse :: [FilePath] -> ExceptT AnalyserError IO ()
 analyse filepaths =
   void $ do
     files <- traverse parseCsvFile filepaths -- traverse gives IO [[Entry]]
-    let extries = U.uniq $ sortOn cEnteredDate $ join files -- flatten csv lines from multiple files, dedup, sort
-    es <- traverse parseDescription extries
-    liftIO $ print es
+    let entries = sortOn cEnteredDate $ U.uniq $ join files -- flatten csv lines from multiple files, dedup, sort
+    es <- traverse parseDescription entries
+    let byVendor = groupBy $ keyVendor <$> es
+    liftIO $ print (M.keys byVendor)
 
 parseDescription :: CsvEntry -> ExceptT AnalyserError IO Entry
 parseDescription v = do
   detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
   return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
+
+groupBy :: Ord k => [(k, a)] -> M.Map k [a]
+groupBy kvs = M.fromListWith (++) [(k, [v]) | (k, v) <- kvs]
+
+keyVendor :: Entry -> (Text, Entry)
+keyVendor e =
+  case e of
+    Entry _ _ (Txn _ vendor _ _) _ _ -> (vendor, e)
+    Entry _ _ (General _) _ _        -> ("(none)", e)
 
 ----
 -- Effective Date,Entered Date,Transaction Description,Amount,Balance
