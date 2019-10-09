@@ -7,18 +7,20 @@ module Analyser
 import           Control.Monad                 (join)
 import           Control.Monad.IO.Class        (liftIO)
 import           Control.Monad.Trans.Except    (ExceptT, except)
+import           Data.Bifunctor                (bimap, first)
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Csv                      ((.:))
 import qualified Data.Csv                      as Csv
-import           Data.Foldable                 (toList, traverse_)
+import           Data.Foldable                 (toList)
 import           Data.Functor                  (void)
+import           Data.List                     (sortOn)
+import qualified Data.List.Utils               as U (uniq)
 import           Data.Text
 import qualified Data.Vector                   as V
 import           Text.Parsec                   (ParseError, (<|>))
 import           Text.Parsec.Char              as PC
 import qualified Text.ParserCombinators.Parsec as P
 
---import Debug.Trace
 {-
   Specification
     . read specified csv files, eg ~/Dropbox/LPSM/personal/visa/20190701.csv
@@ -33,17 +35,14 @@ analyse :: [FilePath] -> ExceptT AnalyserError IO ()
 analyse filepaths =
   void $ do
     files <- traverse parseCsvFile filepaths -- traverse gives IO [[Entry]]
-    let entries = join files
-    traverse_ parseDescription entries
+    let extries = U.uniq $ sortOn cEnteredDate $ join files -- flatten csv lines from multiple files, dedup, sort
+    es <- traverse parseDescription extries
+    liftIO $ print es
 
-parseDescription :: CsvEntry -> ExceptT AnalyserError IO ()
+parseDescription :: CsvEntry -> ExceptT AnalyserError IO Entry
 parseDescription v = do
-  detail <-
-    except $
-    case P.parse detailParser "Description" $ unpack (cDescription v) of
-      Left e  -> Left $ ParseDescriptionError e
-      Right d -> Right d
-  liftIO $ print $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
+  detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
+  return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
 
 ----
 -- Effective Date,Entered Date,Transaction Description,Amount,Balance
@@ -99,10 +98,7 @@ parseCsvFile :: String -> ExceptT AnalyserError IO [CsvEntry]
 parseCsvFile filepath = do
   csvData <- liftIO $ BL.readFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector CsvEntry)
-  except $
-    case d of
-      Left e       -> Left $ ParseCsvError e
-      Right (_, v) -> Right $ toList v
+  except $ bimap ParseCsvError (toList . snd) d
 
 fixedLengthStr :: Int -> P.Parser String
 fixedLengthStr n = P.count n anyChar

@@ -27,6 +27,7 @@ library:
   - bytestring
   - parsec
   - transformers
+  - MissingH
   source-dirs: src
 
 executables:
