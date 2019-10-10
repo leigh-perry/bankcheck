@@ -2,6 +2,7 @@
 
 module Analyser
   ( analyseTotals
+  , AnalyserError
   , TxnFilter
   , txnFilterNone
   , txnFilterGteCents
