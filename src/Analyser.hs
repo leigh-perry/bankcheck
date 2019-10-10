@@ -69,7 +69,7 @@ filterWhitelist wls =
   filter
     (\e ->
        case eDetail e of
-         Txn _ v _ _ -> not (any (\w -> unpack v =~ unpack (wVendorRegex w) :: Bool) wls)
+         Txn _ v _ _ -> not (any (\w -> unpack v =~ unpack (wVendorRegex w)) wls)
          General _ -> True)
 
 groupBy :: Ord k => [(k, a)] -> M.Map k [a]
