@@ -64,13 +64,16 @@ parseDescription v = do
   detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
   return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
 
+-- remove any records where entry in whitelist and amount is less than limit
 filterWhitelist :: [WhitelistEntry] -> [Entry] -> [Entry]
 filterWhitelist wls =
   filter
     (\e ->
        case eDetail e of
-         Txn _ v _ _ -> not (any (\w -> unpack v =~ unpack (wVendorRegex w)) wls)
-         General _ -> True)
+         Txn _ v _ _ -> not (any (shouldHide e v) wls)
+         General _   -> True)
+  where
+    shouldHide e v w = unpack v =~ unpack (wVendorRegex w) && -(eAmount e) < wTxnLimit w
 
 groupBy :: Ord k => [(k, a)] -> M.Map k [a]
 groupBy kvs = M.fromListWith (<>) [(k, [v]) | (k, v) <- kvs]
