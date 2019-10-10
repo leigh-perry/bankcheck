@@ -1,6 +1,7 @@
+{-# LANGUAGE LambdaCase #-}
+
 import qualified Analyser                   as A
 import           Control.Monad.Trans.Except
-import           Data.Functor               (void)
 import           Data.Semigroup             ((<>))
 import           Options.Applicative
 
@@ -25,7 +26,10 @@ run :: Options -> IO ()
 run (Options globalOption cmd) =
   case cmd of
     AnalyseTotals filepaths filterGte filterLt whitelistFilepath ->
-      void $ runExceptT $ A.analyseTotals filepaths filters whitelistFilepath
+      runExceptT (A.analyseTotals filepaths filters whitelistFilepath) >>=
+      (\case
+         Left s -> putStrLn $ "Error: " <> show s
+         Right _ -> return ())
       where filters = toList filterGte A.txnFilterGteCents <> toList filterLt A.txnFilterLtCents
             toList m f =
               case m of
@@ -44,7 +48,7 @@ parseOptions =
        optional
          (option auto (short 'a' <> long "filter-gte" <> metavar "DOLLARS" <> help "Filter txns >= specified dollar amount")) <*>
        optional (option auto (short 'b' <> long "filter-lt" <> metavar "DOLLARS" <> help "Filter txns < specified dollar amount")) <*>
-       optional (strOption (short 'q' <> long "whitelist" <> metavar "WHITELIST FILE" <> help "File of whitelisted vendors"))) ?
+       optional (strOption (short 'w' <> long "whitelist" <> metavar "WHITELIST FILE" <> help "File of whitelisted vendors"))) ?
       "Analyse statement totals in specified files"
     dummy = (Dummy <$> argument str (metavar "BUILD-ID")) ? "Dummy command taking a build id"
 

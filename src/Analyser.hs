@@ -8,23 +8,23 @@ module Analyser
   , txnFilterLtCents
   ) where
 
-import           Control.Monad                 (join)
-import           Control.Monad.IO.Class        (liftIO)
-import           Control.Monad.Trans.Except    (ExceptT, except)
-import           Data.Bifunctor                (bimap, first)
-import qualified Data.ByteString.Lazy          as BL
-import           Data.Csv                      ((.:))
-import qualified Data.Csv                      as Csv
-import           Data.Foldable                 (toList, traverse_)
-import           Data.List                     (sortOn)
-import qualified Data.List.Utils               as U (uniq)
-import           Data.Map                      (assocs)
-import qualified Data.Map                      as M
-import           Data.Monoid
-import           Data.Text                     hiding (all, filter, groupBy)
-import qualified Data.Vector                   as V
-import           Text.Parsec                   (ParseError, (<|>))
-import           Text.Parsec.Char              as PC
+import Control.Monad (join)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Except (ExceptT, except)
+import Data.Bifunctor (bimap, first)
+import qualified Data.ByteString.Lazy as BL
+import Data.Csv ((.:))
+import qualified Data.Csv as Csv
+import Data.Foldable (toList, traverse_)
+import Data.List (sortOn)
+import qualified Data.List.Utils as U (uniq)
+import Data.Map (assocs)
+import qualified Data.Map as M
+import Data.Monoid
+import Data.Text hiding (all, any, filter, groupBy)
+import qualified Data.Vector as V
+import Text.Parsec (ParseError, (<|>))
+import Text.Parsec.Char as PC
 import qualified Text.ParserCombinators.Parsec as P
 
 data TxnFilter
@@ -43,10 +43,15 @@ txnFilterLtCents = TxnFilterLtCents
 
 analyseTotals :: [FilePath] -> [TxnFilter] -> Maybe String -> ExceptT AnalyserError IO ()
 analyseTotals filepaths txnFilter whitelistFilepath = do
-  files <- traverse parseCsvFile filepaths
+  files <- traverse parseEntryFile filepaths
+  whitelist <-
+    case whitelistFilepath of
+      Just wl -> parseWhitelist wl
+      Nothing -> return []
   let entries = sortOn cEnteredDate $ U.uniq $ join files
   es <- traverse parseDescription entries
-  let byVendor = groupBy $ keyByVendor <$> es
+  let whitelisted = filterWhitelist whitelist es
+  let byVendor = groupBy $ keyByVendor <$> whitelisted
   -- aggregate number of txns and total
   let totalsByVendor = foldMap (\e -> (Sum 1, Sum (cents $ -(eAmount e)))) <$> byVendor
   let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
@@ -57,6 +62,14 @@ parseDescription v = do
   detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
   return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
 
+filterWhitelist :: [WhitelistEntry] -> [Entry] -> [Entry]
+filterWhitelist wls =
+  filter
+    (\e ->
+       case eDetail e of
+         Txn _ v _ _ -> not (any (\w -> wVendorRegex w == v) wls)
+         General _ -> True)
+
 groupBy :: Ord k => [(k, a)] -> M.Map k [a]
 groupBy kvs = M.fromListWith (<>) [(k, [v]) | (k, v) <- kvs]
 
@@ -64,7 +77,7 @@ keyByVendor :: Entry -> (Text, Entry)
 keyByVendor e =
   case e of
     Entry _ _ (Txn _ vendor _ _) _ _ -> (vendor, e)
-    Entry _ _ (General _) _ _        -> ("(none)", e)
+    Entry _ _ (General _) _ _ -> ("(none)", e)
 
 type Agg = (Sum Integer, Sum Integer)
 
@@ -72,9 +85,9 @@ passesTxnFilters :: [TxnFilter] -> Agg -> Bool
 passesTxnFilters fs a = all (passesTxnFilter a) fs
 
 passesTxnFilter :: Agg -> TxnFilter -> Bool
-passesTxnFilter _ TxnFilterNone         = True
+passesTxnFilter _ TxnFilterNone = True
 passesTxnFilter a (TxnFilterGteCents c) = getSum (snd a) >= c
-passesTxnFilter a (TxnFilterLtCents c)  = getSum (snd a) < c
+passesTxnFilter a (TxnFilterLtCents c) = getSum (snd a) < c
 
 formatTotal :: (Text, Agg) -> String
 formatTotal (v, (c, t)) = unpack v <> ": " <> show (getSum c) <> " @ $" <> show (dollars $ getSum t)
@@ -85,10 +98,10 @@ formatTotal (v, (c, t)) = unpack v <> ": " <> show (getSum c) <> " @ $" <> show 
 data CsvEntry =
   CsvEntry
     { cEffectiveDate :: !Text
-    , cEnteredDate   :: !Text
-    , cDescription   :: !Text
-    , cAmount        :: !Double
-    , cBalance       :: !Double
+    , cEnteredDate :: !Text
+    , cDescription :: !Text
+    , cAmount :: !Double
+    , cBalance :: !Double
     }
   deriving (Show, Eq)
 
@@ -102,20 +115,27 @@ data Detail
       { gDescription :: !Text
       }
   | Txn
-      { eType    :: !TxnType
-      , eVendor  :: !Text
+      { eType :: !TxnType
+      , eVendor :: !Text
       , eDetails :: !Text
-      , eRef     :: !Text
+      , eRef :: !Text
       }
   deriving (Show, Eq)
 
 data Entry =
   Entry
     { eEffectiveDate :: !Text
-    , eEnteredDate   :: !Text
-    , eDetail        :: !Detail
-    , eAmount        :: !Double
-    , eBalance       :: !Double
+    , eEnteredDate :: !Text
+    , eDetail :: !Detail
+    , eAmount :: !Double
+    , eBalance :: !Double
+    }
+  deriving (Show, Eq)
+
+data WhitelistEntry =
+  WhitelistEntry
+    { wVendorRegex :: !Text
+    , wTxnLimit :: !Double
     }
   deriving (Show, Eq)
 
@@ -126,8 +146,9 @@ dollars :: Integer -> Double
 dollars = (/ 100.0) . fromIntegral
 
 data AnalyserError
-  = ParseCsvError String
+  = ParseEntryError String
   | ParseDescriptionError ParseError
+  | ParseWhitelistError String
   deriving (Show, Eq)
 
 instance Csv.FromNamedRecord CsvEntry where
@@ -135,11 +156,20 @@ instance Csv.FromNamedRecord CsvEntry where
     CsvEntry <$> r .: "Effective Date" <*> r .: "Entered Date" <*> r .: "Transaction Description" <*> r .: "Amount" <*>
     r .: "Balance"
 
-parseCsvFile :: String -> ExceptT AnalyserError IO [CsvEntry]
-parseCsvFile filepath = do
+parseEntryFile :: String -> ExceptT AnalyserError IO [CsvEntry]
+parseEntryFile filepath = do
   csvData <- liftIO $ BL.readFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector CsvEntry)
-  except $ bimap ParseCsvError (toList . snd) d
+  except $ bimap ParseEntryError (toList . snd) d
+
+instance Csv.FromNamedRecord WhitelistEntry where
+  parseNamedRecord r = WhitelistEntry <$> r .: "Vendor Regex" <*> r .: "Per Txn Limit"
+
+parseWhitelist :: String -> ExceptT AnalyserError IO [WhitelistEntry]
+parseWhitelist filepath = do
+  csvData <- liftIO $ BL.readFile filepath
+  let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector WhitelistEntry)
+  except $ bimap ParseWhitelistError (toList . snd) d
 
 fixedLengthStr :: Int -> P.Parser String
 fixedLengthStr n = P.count n anyChar
@@ -158,7 +188,7 @@ txnParser = do
   return $
     Txn
       (case refundInd of
-         Just _  -> Refund
+         Just _ -> Refund
          Nothing -> Purchase)
       (strip $ pack vendor)
       (pack details)
