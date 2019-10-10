@@ -29,6 +29,7 @@ library:
   - transformers
   - MissingH
   - containers
+  - regex-posix
   source-dirs: src
 
 executables:
