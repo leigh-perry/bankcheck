@@ -8,23 +8,23 @@ module Analyser
   , txnFilterLtCents
   ) where
 
-import           Control.Monad                 (join)
-import           Control.Monad.IO.Class        (liftIO)
-import           Control.Monad.Trans.Except    (ExceptT, except)
-import           Data.Bifunctor                (bimap, first)
-import qualified Data.ByteString.Lazy          as BL
-import           Data.Csv                      ((.:))
-import qualified Data.Csv                      as Csv
-import           Data.Foldable                 (toList, traverse_)
-import           Data.List                     (sortOn)
-import qualified Data.List.Utils               as U (uniq)
-import           Data.Map                      (assocs)
-import qualified Data.Map                      as M
-import           Data.Monoid
-import           Data.Text                     hiding (all, filter, groupBy)
-import qualified Data.Vector                   as V
-import           Text.Parsec                   (ParseError, (<|>))
-import           Text.Parsec.Char              as PC
+import Control.Monad (join)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad.Trans.Except (ExceptT, except)
+import Data.Bifunctor (bimap, first)
+import qualified Data.ByteString.Lazy as BL
+import Data.Csv ((.:))
+import qualified Data.Csv as Csv
+import Data.Foldable (toList, traverse_)
+import Data.List (sortOn)
+import qualified Data.List.Utils as U (uniq)
+import Data.Map (assocs)
+import qualified Data.Map as M
+import Data.Monoid
+import Data.Text hiding (all, filter, groupBy)
+import qualified Data.Vector as V
+import Text.Parsec (ParseError, (<|>))
+import Text.Parsec.Char as PC
 import qualified Text.ParserCombinators.Parsec as P
 
 data TxnFilter
@@ -65,7 +65,7 @@ keyByVendor :: Entry -> (Text, Entry)
 keyByVendor e =
   case e of
     Entry _ _ (Txn _ vendor _ _) _ _ -> (vendor, e)
-    Entry _ _ (General _) _ _        -> ("(none)", e)
+    Entry _ _ (General _) _ _ -> ("(none)", e)
 
 type Agg = (Sum Integer, Sum Integer)
 
@@ -73,7 +73,7 @@ passesTxnFilters :: [TxnFilter] -> Agg -> Bool
 passesTxnFilters fs a = all (passesTxnFilter a) fs
 
 passesTxnFilter :: Agg -> TxnFilter -> Bool
-passesTxnFilter _ TxnFilterNone           = True
+passesTxnFilter _ TxnFilterNone = True
 passesTxnFilter a (TxnFilterGteCents c) = getSum (snd a) >= c
 passesTxnFilter a (TxnFilterLtCents c) = getSum (snd a) < c
 
@@ -86,10 +86,10 @@ formatTotal (v, (c, t)) = unpack v <> ": " <> show (getSum c) <> " @ $" <> show 
 data CsvEntry =
   CsvEntry
     { cEffectiveDate :: !Text
-    , cEnteredDate   :: !Text
-    , cDescription   :: !Text
-    , cAmount        :: !Double
-    , cBalance       :: !Double
+    , cEnteredDate :: !Text
+    , cDescription :: !Text
+    , cAmount :: !Double
+    , cBalance :: !Double
     }
   deriving (Show, Eq)
 
@@ -103,20 +103,20 @@ data Detail
       { gDescription :: !Text
       }
   | Txn
-      { eType    :: !TxnType
-      , eVendor  :: !Text
+      { eType :: !TxnType
+      , eVendor :: !Text
       , eDetails :: !Text
-      , eRef     :: !Text
+      , eRef :: !Text
       }
   deriving (Show, Eq)
 
 data Entry =
   Entry
     { eEffectiveDate :: !Text
-    , eEnteredDate   :: !Text
-    , eDetail        :: !Detail
-    , eAmount        :: !Double
-    , eBalance       :: !Double
+    , eEnteredDate :: !Text
+    , eDetail :: !Detail
+    , eAmount :: !Double
+    , eBalance :: !Double
     }
   deriving (Show, Eq)
 
@@ -159,7 +159,7 @@ txnParser = do
   return $
     Txn
       (case refundInd of
-         Just _  -> Refund
+         Just _ -> Refund
          Nothing -> Purchase)
       (strip $ pack vendor)
       (pack details)
