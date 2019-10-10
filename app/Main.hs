@@ -40,8 +40,10 @@ parseOptions =
     (command
        "analyse"
        ((Analyse <$> some (argument str (metavar "SOURCE-FILEPATH")) <*>
-         optional (option auto (short 'a' <> long "filter-gte" <> metavar "DOLLARS" <> help "Filter txns >= specified dollar amount")) <*>
-         optional (option auto (short 'b' <> long "filter-lt" <> metavar "DOLLARS" <> help "Filter txns < specified dollar amount"))) ?
+         optional
+           (option auto (short 'a' <> long "filter-gte" <> metavar "DOLLARS" <> help "Filter txns >= specified dollar amount")) <*>
+         optional
+           (option auto (short 'b' <> long "filter-lt" <> metavar "DOLLARS" <> help "Filter txns < specified dollar amount"))) ?
         "Analyse statements in specified files") <>
      command "dummy" ((Dummy <$> argument str (metavar "BUILD-ID")) ? "Dummy command taking a build id"))
 
