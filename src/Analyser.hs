@@ -2,6 +2,7 @@
 
 module Analyser
   ( analyseTotals
+  , analyseSince
   , AnalyserError
   , TxnFilter
   , txnFilterNone
@@ -22,12 +23,13 @@ import qualified Data.List.Utils               as U (uniq)
 import           Data.Map                      (assocs)
 import qualified Data.Map                      as M
 import           Data.Monoid
-import           Data.Text                     hiding (all, any, filter,
-                                                groupBy)
+import           Data.Text                     as T hiding (all, any, break,
+                                                     filter, groupBy)
 import qualified Data.Vector                   as V
 import           Text.Parsec                   (ParseError, (<|>))
 import           Text.Parsec.Char              as PC
 import qualified Text.ParserCombinators.Parsec as P
+import           Text.Printf                   (printf)
 import           Text.Regex.Posix              ((=~))
 
 data TxnFilter
@@ -44,8 +46,33 @@ txnFilterGteCents = TxnFilterGteCents
 txnFilterLtCents :: Integer -> TxnFilter
 txnFilterLtCents = TxnFilterLtCents
 
-analyseTotals :: [FilePath] -> [TxnFilter] -> Maybe String -> ExceptT AnalyserError IO ()
-analyseTotals filepaths txnFilter whitelistFilepath = do
+analyseTotals :: [FilePath] -> Maybe String -> [TxnFilter] -> ExceptT AnalyserError IO ()
+analyseTotals filepaths whitelistFilepath txnFilter = do
+  whitelisted <- ingest filepaths whitelistFilepath
+  let byVendor = groupBy $ keyByVendor <$> whitelisted
+  -- aggregate number of txns and total
+  let totalsByVendor = foldMap (\e -> (Sum 1, Sum (cents $ -(eAmount e)))) <$> byVendor
+  let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
+  liftIO $ traverse_ putStrLn $ formatTotal <$> filtered
+
+analyseSince :: String -> [FilePath] -> Maybe String -> ExceptT AnalyserError IO ()
+analyseSince startDate filepaths whitelistFilepath = do
+  whitelisted <- ingest filepaths whitelistFilepath
+  let (before, after) = break (\e -> unpack (eEnteredDate e) >= startDate) whitelisted
+  -- find entries in `after` that have never been seen `before`
+  let beforebyVendor = groupBy $ keyByVendor <$> before
+  let previouslyUnseen =
+        filter
+          (\e ->
+             case eDetail e of
+               Txn _ v _ _ -> not (M.member v beforebyVendor)
+               General _   -> True)
+          after
+  liftIO $ traverse_ putStrLn $ formatEntry <$> previouslyUnseen
+
+----
+ingest :: [FilePath] -> Maybe String -> ExceptT AnalyserError IO [Entry]
+ingest filepaths whitelistFilepath = do
   files <- traverse parseEntryFile filepaths
   whitelist <-
     case whitelistFilepath of
@@ -53,13 +80,9 @@ analyseTotals filepaths txnFilter whitelistFilepath = do
       Nothing -> return []
   let entries = sortOn cEnteredDate $ U.uniq $ join files
   es <- traverse parseDescription entries
-  let whitelisted = filterWhitelist whitelist es
-  let byVendor = groupBy $ keyByVendor <$> whitelisted
-  -- aggregate number of txns and total
-  let totalsByVendor = foldMap (\e -> (Sum 1, Sum (cents $ -(eAmount e)))) <$> byVendor
-  let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
-  liftIO $ traverse_ putStrLn $ formatTotal <$> filtered
+  return $ filterWhitelist whitelist es
 
+----
 parseDescription :: CsvEntry -> ExceptT AnalyserError IO Entry
 parseDescription v = do
   detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
@@ -97,6 +120,14 @@ passesTxnFilter a (TxnFilterLtCents c)  = getSum (snd a) < c
 
 formatTotal :: (Text, Agg) -> String
 formatTotal (v, (c, t)) = unpack v <> ": " <> show (getSum c) <> " @ $" <> show (dollars $ getSum t)
+
+-- Entry {eEffectiveDate = "", eEnteredDate = "20191003", eDetail = Txn {eType = Purchase, eVendor = "NAZARI", eDetails = "GRANADA      ESFRGN AMT-55.000000#0457223", eRef = "100300976257"}, eAmount = -92.59, eBalance = -11075.28}
+formatEntry :: Entry -> String
+formatEntry e =
+  case e of
+    Entry _ date (Txn ttype vendor details _) amt _ ->
+      printf "%s %-25s $%8.2f  %-42s (%s)" date vendor (-amt) details (show ttype)
+    Entry _ date (General g) _ _ -> printf "%s                                      %s" date g
 
 ----
 -- Effective Date,Entered Date,Transaction Description,Amount,Balance

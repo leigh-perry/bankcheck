@@ -1,56 +1,58 @@
 import qualified Analyser                   as A
-import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Except
 import           Data.Semigroup             ((<>))
 import           Options.Applicative
 
 main :: IO ()
 main = do
-  options <- execParser (parseOptions ? "Bank check operations")
+  options <- execParser (cmdOptions ? "Bank check operations")
   result <- runExceptT $ run options
   case result of
     Left s  -> putStrLn $ "Error: " <> show s
     Right _ -> return ()
 
-type GlobalOption = String
+type DateString = String -- 20190111
 
-type BuildId = String
+type WhitelistFilepath = String
+
+type AmountGte = Integer
+
+type AmountLt = Integer
 
 data Command
-  = AnalyseTotals [FilePath] (Maybe Integer) (Maybe Integer) (Maybe String)
-  | Dummy BuildId
+  = AnalyseTotals [FilePath] (Maybe WhitelistFilepath) (Maybe AmountGte) (Maybe AmountLt)
+  | AnalyseSince DateString [FilePath] (Maybe WhitelistFilepath)
 
--- approach from https://thoughtbot.com/blog/applicative-options-parsing-in-haskell
--- bankcheck --global-option analyse filename ... filename
--- bankcheck --global-option dummy <build-id>
 data Options =
-  Options (Maybe GlobalOption) Command
+  Options (Maybe String) Command
 
 run :: Options -> ExceptT A.AnalyserError IO ()
-run (Options globalOption cmd) =
+run (Options _ cmd) =
   case cmd of
-    AnalyseTotals filepaths filterGte filterLt whitelistFilepath -> A.analyseTotals filepaths filters whitelistFilepath
+    AnalyseTotals filepaths whitelistFilepath filterGte filterLt -> A.analyseTotals filepaths whitelistFilepath filters
       where filters = toList filterGte A.txnFilterGteCents <> toList filterLt A.txnFilterLtCents
             toList m f =
               case m of
                 Nothing -> []
                 Just d  -> [f (d * 100)]
-    Dummy buildId -> liftIO $ putStrLn (show globalOption <> " : " <> buildId)
+    AnalyseSince startDate filepaths whitelistFilepath -> A.analyseSince startDate filepaths whitelistFilepath
 
-parseOptions :: Parser Options
-parseOptions =
+-- approach from https://thoughtbot.com/blog/applicative-options-parsing-in-haskell
+cmdOptions :: Parser Options
+cmdOptions =
   Options <$>
   optional (strOption (short 'g' <> long "global-option" <> metavar "GLOBALOPTION" <> help "Some option global to all commands")) <*>
-  subparser (command "totals" analyseTotals <> command "dummy" dummy)
+  subparser (command "totals" totals <> command "since" since)
   where
-    analyseTotals =
-      (AnalyseTotals <$> some (argument str (metavar "SOURCE-FILEPATH")) <*>
-       optional
-         (option auto (short 'a' <> long "filter-gte" <> metavar "DOLLARS" <> help "Filter txns >= specified dollar amount")) <*>
-       optional (option auto (short 'b' <> long "filter-lt" <> metavar "DOLLARS" <> help "Filter txns < specified dollar amount")) <*>
-       optional (strOption (short 'w' <> long "whitelist" <> metavar "WHITELIST FILE" <> help "File of whitelisted vendors"))) ?
+    totals =
+      (AnalyseTotals <$> filepaths <*> optional whitelist <*>
+       optional (option auto (short 'a' <> long "filter-gte" <> metavar "DOLLARS" <> help "Filter txns >= dollar amount")) <*>
+       optional (option auto (short 'b' <> long "filter-lt" <> metavar "DOLLARS" <> help "Filter txns < dollar amount"))) ?
       "Analyse statement totals in specified files"
-    dummy = (Dummy <$> argument str (metavar "BUILD-ID")) ? "Dummy command taking a build id"
+    since = (AnalyseSince <$> sinceDate <*> filepaths <*> optional whitelist) ? "Analyse entries since date"
+    filepaths = some (argument str (metavar "SOURCE-FILEPATH"))
+    sinceDate = argument str (metavar "YYYYMMDD")
+    whitelist = strOption (short 'w' <> long "whitelist" <> metavar "WHITELIST FILE" <> help "File of whitelisted vendors")
 
 (?) :: Parser a -> String -> ParserInfo a
 (?) opts desc = info (helper <*> opts) $ progDesc desc
