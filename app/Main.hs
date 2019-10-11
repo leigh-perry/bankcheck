@@ -1,4 +1,7 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 import qualified Analyser                   as A
+import           Control.Monad.Except       (MonadError)
 import           Control.Monad.IO.Class     (MonadIO)
 import           Control.Monad.Trans.Except
 import           Data.Semigroup             ((<>))
@@ -27,7 +30,7 @@ data Command
 data Options =
   Options (Maybe String) Command
 
-run :: MonadIO m => Options -> ExceptT A.AnalyserError m ()
+run :: (MonadError A.AnalyserError m, MonadIO m) => Options -> m ()
 run (Options _ cmd) =
   case cmd of
     AnalyseTotals filepaths whitelistFilepath filterGte filterLt -> A.analyseTotals filepaths whitelistFilepath filters

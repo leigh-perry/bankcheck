@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts  #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Analyser
@@ -11,8 +12,8 @@ module Analyser
   ) where
 
 import           Control.Monad                 (join)
+import           Control.Monad.Except          (MonadError, liftEither)
 import           Control.Monad.IO.Class        (MonadIO, liftIO)
-import           Control.Monad.Trans.Except    (ExceptT, except)
 import           Data.Bifunctor                (bimap, first)
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Csv                      ((.:))
@@ -46,7 +47,7 @@ txnFilterGteCents = TxnFilterGteCents
 txnFilterLtCents :: Integer -> TxnFilter
 txnFilterLtCents = TxnFilterLtCents
 
-analyseTotals :: MonadIO m => [FilePath] -> Maybe String -> [TxnFilter] -> ExceptT AnalyserError m ()
+analyseTotals :: (MonadError AnalyserError m, MonadIO m) => [FilePath] -> Maybe String -> [TxnFilter] -> m ()
 analyseTotals filepaths whitelistFilepath txnFilter = do
   whitelisted <- ingest filepaths whitelistFilepath
   let byVendor = groupBy $ keyByVendor <$> whitelisted
@@ -55,7 +56,7 @@ analyseTotals filepaths whitelistFilepath txnFilter = do
   let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
   liftIO $ traverse_ putStrLn $ formatTotal <$> filtered
 
-analyseSince :: MonadIO m => String -> [FilePath] -> Maybe String -> ExceptT AnalyserError m ()
+analyseSince :: (MonadError AnalyserError m, MonadIO m) => String -> [FilePath] -> Maybe String -> m ()
 analyseSince startDate filepaths whitelistFilepath = do
   whitelisted <- ingest filepaths whitelistFilepath
   let (before, after) = break (\e -> unpack (eEnteredDate e) >= startDate) whitelisted
@@ -71,7 +72,7 @@ analyseSince startDate filepaths whitelistFilepath = do
   liftIO $ traverse_ putStrLn $ formatEntry <$> previouslyUnseen
 
 ----
-ingest :: MonadIO m => [FilePath] -> Maybe String -> ExceptT AnalyserError m [Entry]
+ingest :: (MonadError AnalyserError m, MonadIO m) => [FilePath] -> Maybe String -> m [Entry]
 ingest filepaths whitelistFilepath = do
   files <- traverse parseEntryFile filepaths
   whitelist <-
@@ -83,9 +84,9 @@ ingest filepaths whitelistFilepath = do
   return $ filterWhitelist whitelist es
 
 ----
-parseDescription :: MonadIO m => CsvEntry -> ExceptT AnalyserError m Entry
+parseDescription :: (MonadError AnalyserError m, MonadIO m) => CsvEntry -> m Entry
 parseDescription v = do
-  detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
+  detail <- liftEither $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
   return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
 
 -- remove any records where entry in whitelist and amount is less than limit
@@ -193,20 +194,21 @@ instance Csv.FromNamedRecord CsvEntry where
     CsvEntry <$> r .: "Effective Date" <*> r .: "Entered Date" <*> r .: "Transaction Description" <*> r .: "Amount" <*>
     r .: "Balance"
 
-parseEntryFile :: MonadIO m => String -> ExceptT AnalyserError m [CsvEntry]
+parseEntryFile :: (MonadError AnalyserError m, MonadIO m) => String -> m [CsvEntry]
 parseEntryFile filepath = do
   csvData <- liftIO $ BL.readFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector CsvEntry)
-  except $ bimap ParseEntryError (toList . snd) d
+  liftEither $ bimap ParseEntryError (toList . snd) d
 
 instance Csv.FromNamedRecord WhitelistEntry where
   parseNamedRecord r = WhitelistEntry <$> r .: "Vendor Regex" <*> r .: "Per Txn Limit"
 
-parseWhitelist :: MonadIO m => String -> ExceptT AnalyserError m [WhitelistEntry]
+parseWhitelist :: (MonadError AnalyserError m, MonadIO m) => String -> m [WhitelistEntry]
 parseWhitelist filepath = do
   csvData <- liftIO $ BL.readFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector WhitelistEntry)
-  except $ bimap ParseWhitelistError (toList . snd) d
+  let result = bimap ParseWhitelistError (toList . snd) d
+  liftEither result
 
 fixedLengthStr :: Int -> P.Parser String
 fixedLengthStr n = P.count n anyChar
