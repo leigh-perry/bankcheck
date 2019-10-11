@@ -30,6 +30,7 @@ library:
   - MissingH
   - containers
   - regex-posix
+  - mtl
   source-dirs: src
 
 executables:
@@ -41,6 +42,7 @@ executables:
     - bankcheck
     - optparse-applicative
     - transformers
+    - mtl
     ghc-options:
     - -rtsopts
     - -threaded

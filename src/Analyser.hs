@@ -11,7 +11,7 @@ module Analyser
   ) where
 
 import           Control.Monad                 (join)
-import           Control.Monad.IO.Class        (liftIO)
+import           Control.Monad.IO.Class        (MonadIO, liftIO)
 import           Control.Monad.Trans.Except    (ExceptT, except)
 import           Data.Bifunctor                (bimap, first)
 import qualified Data.ByteString.Lazy          as BL
@@ -46,7 +46,7 @@ txnFilterGteCents = TxnFilterGteCents
 txnFilterLtCents :: Integer -> TxnFilter
 txnFilterLtCents = TxnFilterLtCents
 
-analyseTotals :: [FilePath] -> Maybe String -> [TxnFilter] -> ExceptT AnalyserError IO ()
+analyseTotals :: MonadIO m => [FilePath] -> Maybe String -> [TxnFilter] -> ExceptT AnalyserError m ()
 analyseTotals filepaths whitelistFilepath txnFilter = do
   whitelisted <- ingest filepaths whitelistFilepath
   let byVendor = groupBy $ keyByVendor <$> whitelisted
@@ -55,7 +55,7 @@ analyseTotals filepaths whitelistFilepath txnFilter = do
   let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
   liftIO $ traverse_ putStrLn $ formatTotal <$> filtered
 
-analyseSince :: String -> [FilePath] -> Maybe String -> ExceptT AnalyserError IO ()
+analyseSince :: MonadIO m => String -> [FilePath] -> Maybe String -> ExceptT AnalyserError m ()
 analyseSince startDate filepaths whitelistFilepath = do
   whitelisted <- ingest filepaths whitelistFilepath
   let (before, after) = break (\e -> unpack (eEnteredDate e) >= startDate) whitelisted
@@ -71,7 +71,7 @@ analyseSince startDate filepaths whitelistFilepath = do
   liftIO $ traverse_ putStrLn $ formatEntry <$> previouslyUnseen
 
 ----
-ingest :: [FilePath] -> Maybe String -> ExceptT AnalyserError IO [Entry]
+ingest :: MonadIO m => [FilePath] -> Maybe String -> ExceptT AnalyserError m [Entry]
 ingest filepaths whitelistFilepath = do
   files <- traverse parseEntryFile filepaths
   whitelist <-
@@ -83,7 +83,7 @@ ingest filepaths whitelistFilepath = do
   return $ filterWhitelist whitelist es
 
 ----
-parseDescription :: CsvEntry -> ExceptT AnalyserError IO Entry
+parseDescription :: MonadIO m => CsvEntry -> ExceptT AnalyserError m Entry
 parseDescription v = do
   detail <- except $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
   return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
@@ -193,7 +193,7 @@ instance Csv.FromNamedRecord CsvEntry where
     CsvEntry <$> r .: "Effective Date" <*> r .: "Entered Date" <*> r .: "Transaction Description" <*> r .: "Amount" <*>
     r .: "Balance"
 
-parseEntryFile :: String -> ExceptT AnalyserError IO [CsvEntry]
+parseEntryFile :: MonadIO m => String -> ExceptT AnalyserError m [CsvEntry]
 parseEntryFile filepath = do
   csvData <- liftIO $ BL.readFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector CsvEntry)
@@ -202,7 +202,7 @@ parseEntryFile filepath = do
 instance Csv.FromNamedRecord WhitelistEntry where
   parseNamedRecord r = WhitelistEntry <$> r .: "Vendor Regex" <*> r .: "Per Txn Limit"
 
-parseWhitelist :: String -> ExceptT AnalyserError IO [WhitelistEntry]
+parseWhitelist :: MonadIO m => String -> ExceptT AnalyserError m [WhitelistEntry]
 parseWhitelist filepath = do
   csvData <- liftIO $ BL.readFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector WhitelistEntry)
