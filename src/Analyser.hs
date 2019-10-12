@@ -25,7 +25,7 @@ import           Data.Map                      (assocs)
 import qualified Data.Map                      as M
 import           Data.Monoid
 import           Data.Text                     as T hiding (all, any, break,
-                                                     filter, groupBy)
+                                                     filter, groupBy, reverse)
 import qualified Data.Vector                   as V
 import           Text.Parsec                   (ParseError, (<|>))
 import           Text.Parsec.Char              as PC
@@ -54,7 +54,8 @@ analyseTotals filepaths whitelistFilepath txnFilter = do
   -- aggregate number of txns and total
   let totalsByVendor = foldMap (\e -> (Sum 1, Sum (cents $ -(eAmount e)))) <$> byVendor
   let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
-  liftIO $ traverse_ putStrLn $ formatTotal <$> filtered
+  let sorted = reverse $ sortOn (snd . snd) filtered
+  liftIO $ traverse_ putStrLn $ formatTotal <$> sorted
 
 analyseSince :: (MonadError AnalyserError m, MonadIO m) => String -> [FilePath] -> Maybe String -> m ()
 analyseSince startDate filepaths whitelistFilepath = do
