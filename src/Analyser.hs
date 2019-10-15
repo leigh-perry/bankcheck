@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Analyser
@@ -9,11 +10,15 @@ module Analyser
   , txnFilterNone
   , txnFilterGteCents
   , txnFilterLtCents
+  , FileOps
+  , readBinFile
+  , ConsoleOps
+  , println
   ) where
 
 import           Control.Monad                 (join)
-import           Control.Monad.Except          (MonadError, liftEither)
-import           Control.Monad.IO.Class        (MonadIO, liftIO)
+import           Control.Monad.Except          (ExceptT, MonadError, lift,
+                                                liftEither)
 import           Data.Bifunctor                (bimap, first)
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Csv                      ((.:))
@@ -33,6 +38,21 @@ import qualified Text.ParserCombinators.Parsec as P
 import           Text.Printf                   (printf)
 import           Text.Regex.Posix              ((=~))
 
+----
+class FileOps m where
+  readBinFile :: FilePath -> m BL.ByteString
+
+class ConsoleOps m where
+  println :: String -> m ()
+
+----
+instance FileOps (ExceptT AnalyserError IO) where
+  readBinFile a = lift $ BL.readFile a
+
+instance ConsoleOps (ExceptT AnalyserError IO) where
+  println a = lift $ putStrLn a
+
+----
 data TxnFilter
   = TxnFilterNone
   | TxnFilterGteCents Integer
@@ -47,7 +67,8 @@ txnFilterGteCents = TxnFilterGteCents
 txnFilterLtCents :: Integer -> TxnFilter
 txnFilterLtCents = TxnFilterLtCents
 
-analyseTotals :: (MonadError AnalyserError m, MonadIO m) => [FilePath] -> Maybe String -> [TxnFilter] -> m ()
+----
+analyseTotals :: (MonadError AnalyserError m, FileOps m, ConsoleOps m) => [FilePath] -> Maybe String -> [TxnFilter] -> m ()
 analyseTotals filepaths whitelistFilepath txnFilter = do
   whitelisted <- ingest filepaths whitelistFilepath
   let byVendor = groupBy $ keyByVendor <$> whitelisted
@@ -55,9 +76,9 @@ analyseTotals filepaths whitelistFilepath txnFilter = do
   let totalsByVendor = foldMap (\e -> (Sum 1, Sum (cents $ -(eAmount e)))) <$> byVendor
   let filtered = filter (passesTxnFilters txnFilter . snd) $ assocs totalsByVendor
   let sorted = reverse $ sortOn (snd . snd) filtered
-  liftIO $ traverse_ putStrLn $ formatTotal <$> sorted
+  traverse_ println $ formatTotal <$> sorted
 
-analyseSince :: (MonadError AnalyserError m, MonadIO m) => String -> [FilePath] -> Maybe String -> m ()
+analyseSince :: (MonadError AnalyserError m, FileOps m, ConsoleOps m) => String -> [FilePath] -> Maybe String -> m ()
 analyseSince startDate filepaths whitelistFilepath = do
   whitelisted <- ingest filepaths whitelistFilepath
   let (before, after) = break (\e -> unpack (eEnteredDate e) >= startDate) whitelisted
@@ -70,10 +91,10 @@ analyseSince startDate filepaths whitelistFilepath = do
                Txn _ v _ _ -> not (M.member v beforebyVendor)
                General _   -> True)
           after
-  liftIO $ traverse_ putStrLn $ formatEntry <$> previouslyUnseen
+  traverse_ println $ formatEntry <$> previouslyUnseen
 
 ----
-ingest :: (MonadError AnalyserError m, MonadIO m) => [FilePath] -> Maybe String -> m [Entry]
+ingest :: (MonadError AnalyserError m, FileOps m) => [FilePath] -> Maybe String -> m [Entry]
 ingest filepaths whitelistFilepath = do
   files <- traverse parseEntryFile filepaths
   whitelist <-
@@ -85,7 +106,7 @@ ingest filepaths whitelistFilepath = do
   return $ filterWhitelist whitelist es
 
 ----
-parseDescription :: (MonadError AnalyserError m, MonadIO m) => CsvEntry -> m Entry
+parseDescription :: (MonadError AnalyserError m) => CsvEntry -> m Entry
 parseDescription v = do
   detail <- liftEither $ first ParseDescriptionError $ P.parse detailParser "Description" $ unpack (cDescription v)
   return $ Entry (cEffectiveDate v) (cEnteredDate v) detail (cAmount v) (cBalance v)
@@ -195,18 +216,18 @@ instance Csv.FromNamedRecord CsvEntry where
     CsvEntry <$> r .: "Effective Date" <*> r .: "Entered Date" <*> r .: "Transaction Description" <*> r .: "Amount" <*>
     r .: "Balance"
 
-parseEntryFile :: (MonadError AnalyserError m, MonadIO m) => String -> m [CsvEntry]
+parseEntryFile :: (MonadError AnalyserError m, FileOps m) => String -> m [CsvEntry]
 parseEntryFile filepath = do
-  csvData <- liftIO $ BL.readFile filepath
+  csvData <- readBinFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector CsvEntry)
   liftEither $ bimap ParseEntryError (toList . snd) d
 
 instance Csv.FromNamedRecord WhitelistEntry where
   parseNamedRecord r = WhitelistEntry <$> r .: "Vendor Regex" <*> r .: "Per Txn Limit"
 
-parseWhitelist :: (MonadError AnalyserError m, MonadIO m) => String -> m [WhitelistEntry]
+parseWhitelist :: (MonadError AnalyserError m, FileOps m) => String -> m [WhitelistEntry]
 parseWhitelist filepath = do
-  csvData <- liftIO $ BL.readFile filepath
+  csvData <- readBinFile filepath
   let d = Csv.decodeByName csvData :: Either String (Csv.Header, V.Vector WhitelistEntry)
   let result = bimap ParseWhitelistError (toList . snd) d
   liftEither result

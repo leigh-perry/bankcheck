@@ -43,6 +43,7 @@ executables:
     - optparse-applicative
     - transformers
     - mtl
+    - bytestring
     ghc-options:
     - -rtsopts
     - -threaded

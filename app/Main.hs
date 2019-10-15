@@ -1,8 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-import qualified Analyser                   as A
+import           Analyser
 import           Control.Monad.Except       (MonadError)
-import           Control.Monad.IO.Class     (MonadIO)
 import           Control.Monad.Trans.Except
 import           Data.Semigroup             ((<>))
 import           Options.Applicative
@@ -15,7 +14,7 @@ main = do
     Left s  -> putStrLn $ "Error: " <> show s
     Right _ -> return ()
 
-type DateString = String -- 20190111
+type DateString = String -- "20190111"
 
 type WhitelistFilepath = String
 
@@ -30,16 +29,16 @@ data Command
 data Options =
   Options (Maybe String) Command
 
-run :: (MonadError A.AnalyserError m, MonadIO m) => Options -> m ()
+run :: (MonadError AnalyserError m, FileOps m, ConsoleOps m) => Options -> m ()
 run (Options _ cmd) =
   case cmd of
-    AnalyseTotals filepaths whitelistFilepath filterGte filterLt -> A.analyseTotals filepaths whitelistFilepath filters
-      where filters = toList filterGte A.txnFilterGteCents <> toList filterLt A.txnFilterLtCents
+    AnalyseTotals filepaths whitelistFilepath filterGte filterLt -> analyseTotals filepaths whitelistFilepath filters
+      where filters = toList filterGte txnFilterGteCents <> toList filterLt txnFilterLtCents
             toList m f =
               case m of
                 Nothing -> []
                 Just d  -> [f (d * 100)]
-    AnalyseSince startDate filepaths whitelistFilepath -> A.analyseSince startDate filepaths whitelistFilepath
+    AnalyseSince startDate filepaths whitelistFilepath -> analyseSince startDate filepaths whitelistFilepath
 
 -- approach from https://thoughtbot.com/blog/applicative-options-parsing-in-haskell
 cmdOptions :: Parser Options
